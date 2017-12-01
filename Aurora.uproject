@@ -1,12 +1,18 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "4.17",
+	"EngineAssociation": "{E054F2F9-A649-DB17-11B2-BBB5C61277B6}",
 	"Category": "",
 	"Description": "",
-	"Plugins": [
+	"Modules": [
 		{
-			"Name": "HoudiniEngine",
-			"Enabled": true
+			"Name": "Aurora",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine"
+			]
 		}
+	],
+	"Plugins": [
 	]
 }

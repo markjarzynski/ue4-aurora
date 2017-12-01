@@ -1,0 +1,53 @@
+float4 Aurora(float3 WorldPosition, float2 SvPosition, float Time, float3 RayDirection, int MaxRaySteps) {
+
+    float4 color = float4(0,0,0,0);
+
+    float3 C = Primitive.ObjectWorldPositionAndRadius.xyz;
+    float3 P = WorldPosition - C;
+    float R = Primitive.ObjectWorldPositionAndRadius.w;
+    //float R = Primitive.LocalObjectBoundsMax * 2;
+
+    float3 scale = float3(8.0f, 8.0f, 1.0f);
+    int quality = 4;
+    int repeat = 16;
+
+    float RayStepSize = R / MaxRaySteps;
+    float3 RayStep = RayStepSize * RayDirection;
+    float RayStepOpacity = RayStepSize * 0.01;
+
+    //float rand = float(Rand3DPCG16(int3(SvPosition, View.FrameNumber)).x) / 0x10000;
+    P += RayStep;// * rand;
+
+    float3 green = float3(0,1,0);
+    float3 red = float3(1,0,0);
+    float3 magenta = float3(1,0,1);
+
+    float3 local_color = green;
+
+    if (WorldPosition.z >= 1000 && WorldPosition.z < 1250) {
+        float v = (WorldPosition.z - 1000) / 250;
+        local_color = (1 - v) * green + v * red;
+    } else if (WorldPosition.z >= 1250 && WorldPosition.z < 1500) {
+        float v = (WorldPosition.z - 1250) / 250;
+        local_color = (1 - v) * red + v * magenta;
+    } else if (WorldPosition.z >= 1500) {
+        local_color = magenta;
+    }
+
+    float speed = 1.0f;
+    float3 direction = float3(1,-1,0);
+
+    UNROLL for (int i = 0; i < MaxRaySteps; i++, P += RayStep) {
+
+        float4 voronoi = VoronoiNoise3D_ALU(scale * P/R + direction * Time * speed, quality, true, repeat, false).wwww;
+        voronoi = 1 - voronoi;
+
+        float opacity = RayStepOpacity * smoothstep(1.0, 0.1, length(P/R));
+
+        color += (1 - color.a) * opacity * voronoi * float4(local_color,1);
+
+    }
+
+    return color;
+
+}
