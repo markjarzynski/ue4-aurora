@@ -1,4 +1,65 @@
-float4 Aurora(float3 WorldPosition, float2 SvPosition, float Time, float3 RayDirection, int MaxRaySteps) {
+float3 TileSize(Texture2D Texture) {
+	float2 TexSize; // size of the Texture in pixels
+	float2 Tiles; // x: number of tiles in the X direction. y: number of tiles in the Y direction. z: total number of tiles.
+
+	Texture.GetDimensions(TexSize.x, TexSize.y);
+
+	float TotalTiles = round(pow(abs(TexSize.x * TexSize.y), 1.0f / 3.0f));
+
+	if (TexSize.x == TexSize.y) {
+		// same width and height
+		Tiles.x = Tiles.y = sqrt(TotalTiles);
+	} else if (TexSize.x > TexSize.y) {
+		// wider than taller
+		Tiles.x = round(sqrt(TotalTiles * 2));
+		Tiles.y = Tiles.x / 2;
+	} else if (TexSize.y > TexSize.x) {
+		// taller than wider
+		Tiles.y = round(sqrt(TotalTiles * 2));
+		Tiles.x = Tiles.y / 2;
+	}
+
+	return float3(Tiles, Tiles.x * Tiles.y);
+}
+
+float3 TileUVtoXYZ(float3 Tiles, float2 uv) {
+
+	float2 XY;
+	float Z;
+
+	XY = uv * Tiles.xy;
+	Z = floor(XY.x) / Tiles.z + floor(XY.y) / Tiles.y;
+
+	return (float3(frac(XY), Z) * Tiles.z) / (Tiles.z - 1.0f);
+
+}
+
+float4 TileLookup(Texture2D Texture, SamplerState TextureSampler, float3 Tiles, float3 xyz) {
+
+	float X, Y, Z;
+	float2 TexCoord;
+	float3 Texture0, Texture1;
+
+	xyz = (frac(xyz) * (Tiles.z - 1.0) + 0.5) / Tiles.z;
+
+	Z = xyz.z * Tiles.z;
+	X = floor(Z % Tiles.x);
+	Y = floor(Z / Tiles.y);
+
+	TexCoord = (xyz.xy / Tiles.xy) + float2(X / Tiles.x, Y / Tiles.y);
+	Texture0 = Texture2DSample(Texture, TextureSampler, TexCoord).xyz;
+
+	Z += 1;
+	X = floor(Z % Tiles.x);
+	Y = floor(Z / Tiles.y);
+
+	TexCoord = (xyz.xy / Tiles.xy) + float2(X / Tiles.x, Y / Tiles.y);
+	Texture1 = Texture2DSample(Texture, TextureSampler, TexCoord).xyz;
+
+	return float4(lerp(Texture0, Texture1, frac(Z)), 1);
+}
+
+float4 Aurora(Texture2D Texture, SamplerState TextureSampler, float3 WorldPosition, float2 SvPosition, float Time, float3 RayDirection, int MaxRaySteps) {
 
     float4 color = float4(0,0,0,0);
 
@@ -7,40 +68,59 @@ float4 Aurora(float3 WorldPosition, float2 SvPosition, float Time, float3 RayDir
     float R = Primitive.ObjectWorldPositionAndRadius.w;
     //float R = Primitive.LocalObjectBoundsMax * 2;
 
-    float3 scale = float3(8.0f, 8.0f, 1.0f);
-    int quality = 4;
-    int repeat = 16;
+    float3 Tiles = TileSize(Texture);
 
     float RayStepSize = R / MaxRaySteps;
     float3 RayStep = RayStepSize * RayDirection;
-    float RayStepOpacity = RayStepSize * 0.01;
+    float RayStepOpacity = RayStepSize * 0.001;
 
-    //float rand = float(Rand3DPCG16(int3(SvPosition, View.FrameNumber)).x) / 0x10000;
-    P += RayStep;// * rand;
-
+    float3 teal = float3(0,1,1);
     float3 green = float3(0,1,0);
-    float3 red = float3(1,0,0);
+    float3 yellow = float3(1,1,0);
     float3 magenta = float3(1,0,1);
+
+    float4 color_height = float4(1000, 3000, 3250, 3500); // Teal, Green, Yellow, Magenta
 
     float3 local_color = green;
 
-    if (WorldPosition.z >= 1000 && WorldPosition.z < 1250) {
-        float v = (WorldPosition.z - 1000) / 250;
-        local_color = (1 - v) * green + v * red;
-    } else if (WorldPosition.z >= 1250 && WorldPosition.z < 1500) {
-        float v = (WorldPosition.z - 1250) / 250;
-        local_color = (1 - v) * red + v * magenta;
-    } else if (WorldPosition.z >= 1500) {
-        local_color = magenta;
-    }
+    float speed = 0.1;
+    float3 direction = float3(1,1,1);
 
-    float speed = 1.0f;
-    float3 direction = float3(1,-1,0);
+    float height = WorldPosition.z;
 
-    UNROLL for (int i = 0; i < MaxRaySteps; i++, P += RayStep) {
+    float rand = float(Rand3DPCG16(int3(SvPosition, View.FrameNumber)).x) / 0x10000;
 
-        float4 voronoi = VoronoiNoise3D_ALU(scale * P/R + direction * Time * speed, quality, true, repeat, false).wwww;
+    P += RayStep * rand;
+    height += RayStep.z * rand;
+
+    UNROLL for (int i = 0; i < MaxRaySteps; i++, P += RayStep, height += RayStep.z) {
+
+        if (height < color_height.x) {
+            local_color = teal;
+        } else if (height > color_height.x && height < color_height.x + 250) {
+            float v = (height - color_height.x) / 250;
+            local_color = (1 - v) * teal + v * green;
+        } else if (height >= color_height.y && height < color_height.z) {
+            float v = (height - color_height.y) / (color_height.z - color_height.y);
+            local_color = (1 - v) * green + v * yellow;
+        } else if (height >= color_height.z && height < color_height.w) {
+            float v = (height - color_height.y) / (color_height.z - color_height.y);
+            local_color = (1 - v) * yellow + v * magenta;
+        } else if (height >= color_height.w) {
+            local_color = magenta;
+        }
+
+        // Left this here to be able to compare performance before/after 3D texture
+        /*
+        float3 scale = float3(8.0f, 8.0f, 1.0f);
+        int quality = 4;
+        int repeat = 16;
+
+        float voronoi = VoronoiNoise3D_ALU(scale * P/R + direction * Time * speed, quality, true, repeat, false).wwww;
         voronoi = 1 - voronoi;
+        */
+
+        float voronoi = TileLookup(Texture, TextureSampler, Tiles, P/R + direction * Time * speed).x;
 
         float opacity = RayStepOpacity * smoothstep(1.0, 0.1, length(P/R));
 
@@ -50,4 +130,18 @@ float4 Aurora(float3 WorldPosition, float2 SvPosition, float Time, float3 RayDir
 
     return color;
 
+}
+
+float4 AuroraTileGen(Texture2D Texture, float2 TexCoord) {
+    float3 Tiles = TileSize(Texture);
+    float3 position = TileUVtoXYZ(Tiles, TexCoord);
+
+    float3 scale = float3(8.0f, 8.0f, 1.0f);
+    int quality = 4;
+    int repeat = 16;
+
+    float4 voronoi = VoronoiNoise3D_ALU(scale * position, quality, true, repeat, false).wwww;
+    voronoi = 1 - voronoi;
+
+    return voronoi;
 }
